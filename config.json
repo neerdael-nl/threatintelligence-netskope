@@ -1,0 +1,12 @@
+{
+  "tokens": {
+    "token_v1": "",
+    "token_v2": ""
+  },
+  "tenant": "",
+  "filelist": "",
+  "debug": {
+    "enabled": true,
+    "level": "info"
+  }
+}

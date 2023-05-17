@@ -1,4 +1,4 @@
-import re, requests, json, csv, html2text, argparse, logging
+import re, requests, json, csv, html2text, argparse, logging, os, sys
 from io import StringIO
 from bs4 import BeautifulSoup
 
@@ -120,11 +120,10 @@ def download_content(url, feed):
     logging.debug(f'Trying to get data from: {url} for feed {feed}')
     try:
         response = requests.get(url, headers=ua_headers)
-        logging.debug(f'Response: {response.text}')
         response.raise_for_status()
     except requests.exceptions.RequestException as e:
         print(f"Failed to download content from {url}: {str(e)}")
-        return None
+        sys.exit(1)
     if feed == 'threatminer_url':
         contentlist = process_html(response.text)
         return contentlist
@@ -204,7 +203,6 @@ def patch_urllist(urllist, feed):
     response = requests.get(url, headers=headers)
     response = response.json()
     existingurls = response["data"]["urls"]
-    logging.debug(f'Existing ULRs: {existingurls}')
     unique_values = set(urllist).symmetric_difference(set(existingurls))
     logging.debug(f'Unique Values: {unique_values}')
     unique_list = list(unique_values)
@@ -262,9 +260,10 @@ def add_urllist_to_api(urllist, feed):
                     print(f'Imported {len(unique_lines)} from {feed} to Netskope')
                 else:
                     logging.debug(f"Failed to add data to API: {error_message}")
+                    sys.exit(1)
             except json.JSONDecodeError:
                 logging.debug(f"Failed to add data to API: {error_message}")
-                return None
+                sys.exit(1)
 
 
 def extract_hashes(content):
@@ -273,16 +272,19 @@ def extract_hashes(content):
     for line in lines:
         if re.match(r'^[a-fA-F0-9]{64}$', line.strip()):
             hashes.append(line.strip())
+        else:
+            None
     return hashes
 
 def add_hashes_to_api(hashes, feed):
     url = f'https://{tenant}.goskope.com/api/v1/updateFileHashList?token={token_v1}'
-    payload = {"name" : f"{filelist}","list" : f"{','.join(hashes)}"}
+    payload = {"name" : f"{filelist_sha256}","list" : f"{','.join(hashes)}"}
     logging.debug(f'Payload: {payload}')
     try:
         response = requests.patch(url, json=payload)
         logging.debug(f'Response: {response.json()}')
         response.raise_for_status()
+        print(f'Imported {len(hashes)} from {feed} to Netskope')
         return response
     except requests.exceptions.RequestException as e:
         error_message = str(e)
@@ -291,9 +293,9 @@ def add_hashes_to_api(hashes, feed):
                 error_json = response.json()
                 error_message = error_json.get("message", error_message)
             except json.JSONDecodeError:
-                pass
+                sys.exit(1)
         logging.debug(f"Failed to add data to API: {error_message}")
-        return None
+        sys.exit(1)
 
 
 def check_type(feed):
@@ -304,6 +306,9 @@ def check_type(feed):
     elif 'hash' in feed:
         type = 'hash'
         return type
+    elif 'url' in feed:
+        type = 'url'
+        return type
     else:
         type = 'urllist'
         return type
@@ -312,9 +317,8 @@ def check_type(feed):
 def csv_final(feed_content, feed, type):
     logging.debug('Matched Web Profile')
     logging.debug(f'Processing {type} feed')
-    logging.debug(f'Pre-Processing Data: {feed_content}')
     content = csv_process(feed_content)
-    logging.debug(f'Post-Processing Data: {content}')
+    logging.debug(f'Post-Processing Data: {content[:10]}')
     try:
         response = add_urllist_to_api(content)
         logging.info(f'Imported {len(content)} from {feed} to Netskope')
@@ -324,14 +328,14 @@ def csv_final(feed_content, feed, type):
 def urllist_final(feed_content, feed, type):
     logging.debug('Matched Web Profile')
     try:
-        if 'type' == 'url' :
-            logging.debug(f'Processing {feed} feed')
+        if type == 'url' :
+            logging.debug(f'Processing {feed} feed {type}')
             urllist = add_urllist_to_api(feed_content, feed)
         elif type == 'snort':
-            logging.debug(f'Processing {feed} feed')
+            logging.debug(f'Processing {feed} feed {type}')
             urllist = add_urllist_to_api(feed_content, feed)
         else:
-            logging.debug(f'Processing {type} feed')
+            logging.debug(f'Processing {feed} feed {type}')
             urllist = extract_urllist(feed_content, feed)
             # Add IP subnets to the API
             response = add_urllist_to_api(urllist, feed)
@@ -344,24 +348,17 @@ def hash_final(feed_content, feed, type):
     logging.debug(f'Processing {type} feed')
     hashes = extract_hashes(feed_content)
     # Add IP subnets to the API
-    try:
-        response = add_hashes_to_api(hashes, feed)
-        print(f'Imported {len(hashes)} from {feed} to Netskope')
-    except:
-        None
+    response = add_hashes_to_api(hashes, feed)
 
 def process_type(type, feed_content, feed):
-    if type == 'urllist':
+    if type == 'urllist'  or type == 'snort' or type == 'url':
         logging.debug(f'Starting the process for {type} imports for {feed}')
-        logging.debug(f'data: {feed_content}')
         urllist_final(feed_content, feed, type)
     elif type == 'hash':
         logging.debug(f'Starting the process for {type} imports for {feed}')
-        logging.debug(f'data: {feed_content}')
         hash_final(feed_content, feed, type)
     elif type == 'csv':
         logging.debug(f'Starting the process for {type} imports for {feed}')
-        logging.debug(f'data: {feed_content}')
         csv_final(feed_content, feed, type)
 
 # Retrieve the desired feed content

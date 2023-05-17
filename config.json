@@ -4,7 +4,8 @@
     "token_v2": ""
   },
   "tenant": "",
-  "filelist": "",
+  "filelist_sha256": "",
+  "filelist_md5": "",
   "debug": {
     "enabled": true,
     "level": "info"

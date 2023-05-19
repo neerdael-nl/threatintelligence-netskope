@@ -1,9 +1,10 @@
 # threatintelligence-netskope
 Ingest OSINT (Open Source) Threat Intelligence directly in Netskope.<br>
-It is required to fill in the correct API tokens and Tenant name in your config.json in order for the tool to work.  (Tenant name takes the format of **name.region**, except for some regions like our main US management environment only where you only need to enter **name**
+It is required to fill in the correct API tokens and Tenant name in your config.json in order for the tool to work.  (Tenant name takes the format of **name.region**, except for some regions like our main US management environment only where you only need to enter **name**, script has been updated for better json handling and added a dnsoverhttps feed.
 
 Currently includes the following feeds:
 
+dnsoverhttps: https://download.dnscrypt.info/resolvers-list/json/public-resolvers.json,<br>
 rescure_ip: https://rescure.me/rescure_blacklist.txt,<br>
 cins_ip: http://cinsscore.com/list/ci-badguys.txt,<br>
 feodo_recommended_ip: https://feodotracker.abuse.ch/downloads/ipblocklist_recommended.txt,<br>

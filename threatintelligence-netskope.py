@@ -1,6 +1,8 @@
-import re, requests, json, csv, html2text, argparse, logging, os, sys
+import re, requests, json, csv, html2text, argparse, logging, os, sys, builtins
 from io import StringIO
 from bs4 import BeautifulSoup
+from jsonschema import validate, ValidationError
+
 
 # Read the configuration file
 with open('config.json') as file:
@@ -41,6 +43,7 @@ else:
 
 feeds = {
     'all': '',
+    'dnsoverhttps': 'https://download.dnscrypt.info/resolvers-list/json/public-resolvers.json',
     'rescure_ip': 'https://rescure.me/rescure_blacklist.txt',
     'cins_ip': 'http://cinsscore.com/list/ci-badguys.txt',
     'feodo_recommended_ip': 'https://feodotracker.abuse.ch/downloads/ipblocklist_recommended.txt',
@@ -73,6 +76,17 @@ parser = argparse.ArgumentParser(description="Process feeds.")
 parser.add_argument("-f", "--feed", help="Specify the feed name", choices=feeds.keys(), required=True)
 args = parser.parse_args()
 feed_to_import = args.feed
+
+
+schema_urllist = {
+  "name": "string",
+  "data": {
+    "urls": [
+      "string"
+    ],
+    "type": "exact"
+  }
+}
 
 # Global variables
 content = ''
@@ -131,6 +145,8 @@ def download_content(url, feed):
         ip_pattern = r"\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}"
         ip_addresses = re.findall(ip_pattern, response.text)
         return ip_addresses
+    elif feed == 'dnsoverhttps':
+        return response.json()
     else:
         return response.text
 
@@ -208,7 +224,7 @@ def patch_urllist(urllist, feed):
     unique_list = list(unique_values)
     if unique_list == []:
         logging.info(f'Data is already up to date')
-        None
+        exit()
     else:
         payload = {
             'name': f'{feed}',
@@ -242,7 +258,17 @@ def add_urllist_to_api(urllist, feed):
     }
     logging.debug(f'URL: {url}')
     logging.debug(f'Headers: {headers}')
+    payload_type = (builtins.type(payload))
     logging.debug(f'Payload: {payload}')
+    if isinstance(payload, dict):
+        None
+    elif isinstance(payload, str):
+        payload = json.loads(payload)
+    try:
+        validate(instance=payload, schema=schema_urllist)
+        print("JSON is valid")
+    except ValidationError as e:
+        print(f"Invalid JSON: {e}")
     try:
         response = requests.post(url, headers=headers, json=payload)
         response.raise_for_status()
@@ -309,6 +335,9 @@ def check_type(feed):
     elif 'url' in feed:
         type = 'url'
         return type
+    elif 'dnsoverhttps' in feed:
+        type = 'dns'
+        return type
     else:
         type = 'urllist'
         return type
@@ -334,6 +363,9 @@ def urllist_final(feed_content, feed, type):
         elif type == 'snort':
             logging.debug(f'Processing {feed} feed {type}')
             urllist = add_urllist_to_api(feed_content, feed)
+        elif type == 'dns':
+            logging.debug(f'Processing {feed} feed {type}')
+            urllist = add_urllist_to_api(feed_content, feed)
         else:
             logging.debug(f'Processing {feed} feed {type}')
             urllist = extract_urllist(feed_content, feed)
@@ -350,6 +382,18 @@ def hash_final(feed_content, feed, type):
     # Add IP subnets to the API
     response = add_hashes_to_api(hashes, feed)
 
+def dns_final(feed_content, feed, type):
+    logging.debug('Matched DNS Profile')
+    logging.debug(f'Processing {type} feed')
+    ipv4_addrs = []
+
+    for record in feed_content:
+        if record['proto'] == 'DoH':
+            for addr in record['addrs']:
+                if not re.match(r'.*:.+', addr):  # this will exclude any string with a colon, hence excluding IPv6 addresses.
+                    ipv4_addrs.append(addr)
+    add_urllist_to_api(ipv4_addrs, feed)
+
 def process_type(type, feed_content, feed):
     if type == 'urllist'  or type == 'snort' or type == 'url':
         logging.debug(f'Starting the process for {type} imports for {feed}')
@@ -360,6 +404,10 @@ def process_type(type, feed_content, feed):
     elif type == 'csv':
         logging.debug(f'Starting the process for {type} imports for {feed}')
         csv_final(feed_content, feed, type)
+    elif type == 'dns':
+        logging.debug(f'Starting the process for {type} imports for {feed}')
+        dns_final(feed_content, feed, type)
+
 
 # Retrieve the desired feed content
 if feed_to_import == 'all':
